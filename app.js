@@ -35,5 +35,3 @@ mongoose
   .catch((err) => {
     console.log(err);
   });
-//Local API
-//mongodb://localhost:27017/textile

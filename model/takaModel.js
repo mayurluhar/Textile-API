@@ -46,7 +46,7 @@ takaSchema = mongoose.Schema({
   takaRemark: {
     type: String,
   },
-  status: {
+  takaStatus: {
     type: String,
   },
   createdBy: {

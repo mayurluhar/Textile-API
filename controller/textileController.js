@@ -27,6 +27,7 @@ const designPhotoModel = require("../model/designPhotoModel");
 const batchModel = require("../model/batchModel");
 const stockModel = require("../model/stockModel");
 const yarmPurchaseModel = require("../model/yarmPurchaseModel");
+const { json } = require("body-parser");
 //=== Array Variable
 
 var storage = multer.diskStorage({
@@ -64,38 +65,40 @@ router.post("/login", async (req, res) => {
 router.get("/getCount", async (req, res) => {
   var objdata = {};
   objdata.pendingOrderCount = await orderModel
-    .find({ orderStatus: "Pending" })
+    .find({ orderStatus: "Pending", isActive: true })
     .count();
   objdata.InMachineCount = await batchModel
-    .find({ status: "In Machine" })
+    .find({ status: "In Machine", isActive: true })
     .count();
   objdata.ReadyFoldingCount = await batchModel
-    .find({ status: "Ready For Folding" })
+    .find({ status: "Ready For Folding", isActive: true })
     .count();
   objdata.InFoldingCount = await batchModel
-    .find({ status: "In Folding" })
+    .find({ status: "In Folding", isActive: true })
     .count();
   objdata.FoldingDoneCount = await takaModel
-    .find({ status: "Folding Done" })
+    .find({ takaStatus: "Folding Done", isActive: true })
     .count();
   objdata.InButtaCuttingCount = await takaModel
-    .find({ status: "In Butta Cutting" })
+    .find({ takaStatus: "In Butta Cutting", isActive: true })
     .count();
   objdata.ButtaCuttingDoneCount = await takaModel
-    .find({ status: "Butta Cutting Done" })
+    .find({ takaStatus: "Butta Cutting Done", isActive: true })
     .count();
-  objdata.InMillCount = await takaModel.find({ status: "In Mill" }).count();
+  objdata.InMillCount = await takaModel
+    .find({ takaStatus: "In Mill", isActive: true })
+    .count();
   objdata.MillDoneCount = await takaModel
-    .find({ status: "Mill Process Done" })
+    .find({ takaStatus: "Mill Process Done", isActive: true })
     .count();
   objdata.InBorderCount = await takaModel
-    .find({ status: "In Border Cutting" })
+    .find({ takaStatus: "In Border Cutting", isActive: true })
     .count();
   objdata.BorderCuttingCount = await takaModel
-    .find({ status: "Border Cutting Done" })
+    .find({ takaStatus: "Border Cutting Done", isActive: true })
     .count();
   objdata.InCuttingCount = await takaModel
-    .find({ status: "In Cutting" })
+    .find({ takaStatus: "In Cutting", isActive: true })
     .count();
   objdata.ReadySaleCount = await stockModel.find().count();
 
@@ -214,34 +217,39 @@ router.get("/getAllUser", async (req, res) => {
 
 //================ DesignPhoto API =======================
 
-router.post("/addDesignPhoto", upload.array("pic", 10), async (req, res) => {
-  for (const file of req.files) {
-    var designP = new designPhotoModel();
-    designP.pathImage = file.filename;
-    designP.createdBy = req.body.createdBy;
-    designP.createdDateTime = new Date();
-    designP.addOn = new Date();
-    designP.isActive = "true";
-    //==FK
-    designP.designIDFK = req.body.designIDFK;
+router.post(
+  "/addDesignPhoto",
+  upload.array("pathImage", 10),
+  async (req, res) => {
+    var objdata;
+    for (const file of req.files) {
+      var designP = new designPhotoModel();
+      designP.pathImage = file.filename;
+      designP.createdBy = req.body.createdBy;
+      designP.createdDateTime = new Date();
+      designP.addOn = new Date();
+      designP.isActive = "true";
+      //==FK
+      designP.designIDFK = req.body.designIDFK;
 
-    const objdata = await designP.save();
-  }
+      objdata = await designP.save();
+    }
 
-  if (objdata != null) {
-    res.json({
-      result: "success",
-      msg: "User Add Successfully",
-      data: 1,
-    });
-  } else {
-    res.json({
-      result: "fail",
-      msg: "Not Inserted",
-      data: 0,
-    });
+    if (objdata != null) {
+      res.json({
+        result: "success",
+        msg: "User Add Successfully",
+        data: 1,
+      });
+    } else {
+      res.json({
+        result: "fail",
+        msg: "Not Inserted",
+        data: 0,
+      });
+    }
   }
-});
+);
 
 router.post(
   "/updateDesignPhoto",
@@ -461,6 +469,231 @@ router.post("/addBatch", async (req, res) => {
   }
 });
 
+router.post("/addDesignMachine", async (req, res) => {
+  var batch = new batchModel();
+
+  console.log(req.body.designIDFK);
+  console.log(req.body.machineIDFK);
+  batch.designIDFK = req.body.designIDFK;
+  batch.machineIDFK = req.body.machineIDFK;
+  batch.status = "In Machine";
+  batch.createdBy = req.body.createdBy;
+  batch.createdDateTime = new Date();
+  batch.addOn = new Date();
+  batch.isActive = "true";
+  var pageValue = req.body.page;
+
+  if (pageValue == "FoldingOut") {
+    const design = await designModel.findOne({
+      designNo: req.body.designIDFK,
+      isActive: true,
+    });
+    //console.log(design);
+    batch.designIDFK = design._id;
+  }
+
+  const objdata = await batch.save();
+
+  const pipeline1 = [
+    [
+      {
+        $lookup: {
+          from: "machines",
+          localField: "machineIDFK",
+          foreignField: "_id",
+          as: "machine",
+        },
+      },
+      {
+        $addFields: {
+          machine: {
+            $arrayElemAt: ["$machine", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "designs",
+          localField: "designIDFK",
+          foreignField: "_id",
+          as: "design",
+        },
+      },
+      {
+        $addFields: {
+          design: {
+            $arrayElemAt: ["$design", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "factories",
+          localField: "machine.factoryIDFK",
+          foreignField: "_id",
+          as: "factory",
+        },
+      },
+      {
+        $addFields: {
+          factory: {
+            $arrayElemAt: ["$factory", 0],
+          },
+        },
+      },
+    ],
+  ];
+  var data = new Array();
+  const aggCursor1 = batchModel.aggregate(pipeline1);
+  for await (const doc of aggCursor1) {
+    // console.log(doc._id);
+    // console.log("object ID");
+    // console.log(objdata._id);
+    if (objdata._id.toString() == doc._id.toString()) {
+      //console.log(objdata._id);
+      data.push(doc);
+    }
+  }
+  console.log("Batch All Data==========");
+  console.log(data);
+  console.log(data[0].factory.factoryPrefix);
+  console.log(data[0].machine.machineType);
+
+  const pipeline = [
+    [
+      {
+        $lookup: {
+          from: "batches",
+          localField: "batchIDFK",
+          foreignField: "_id",
+          as: "batch",
+        },
+      },
+      {
+        $addFields: {
+          batch: {
+            $arrayElemAt: ["$batch", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "machines",
+          localField: "batch.machineIDFK",
+          foreignField: "_id",
+          as: "machine",
+        },
+      },
+      {
+        $addFields: {
+          machine: {
+            $arrayElemAt: ["$machine", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "factories",
+          localField: "machine.factoryIDFK",
+          foreignField: "_id",
+          as: "factory",
+        },
+      },
+      {
+        $addFields: {
+          factory: {
+            $arrayElemAt: ["$factory", 0],
+          },
+        },
+      },
+      {
+        $match: {
+          "machine.machineType": data[0].machine.machineType,
+          "factory.factoryPrefix": data[0].factory.factoryPrefix,
+        },
+      },
+    ],
+  ];
+  var taka = new Array();
+  const aggCursor = takaModel.aggregate(pipeline);
+  for await (const doc of aggCursor) {
+    taka.push(doc);
+  }
+  console.log("Taka All Data==========");
+  console.log(taka);
+
+  var convertedJson = JSON.parse(JSON.stringify(data[0]));
+  convertedJson.takaStatus = "In Machine";
+  convertedJson.takaNumber = "0";
+  convertedJson.taka = taka;
+
+  if (convertedJson != null) {
+    res.json({
+      result: "success",
+      msg: "Design Add Successfully",
+      data: convertedJson,
+    });
+  } else {
+    res.json({
+      result: "fail",
+      msg: "Not Inserted",
+      data: convertedJson,
+    });
+  }
+});
+
+router.post("/getMachineBySelection", async (req, res) => {
+  var machineTypeValue = req.body.machineType;
+  var machineNumber = req.body.machineNumber;
+
+  var itemArray = machineTypeValue.split("-");
+  console.log(itemArray[0]);
+  console.log(itemArray[1]);
+
+  const pipeline1 = [
+    [
+      {
+        $lookup: {
+          from: "factories",
+          localField: "factoryIDFK",
+          foreignField: "_id",
+          as: "factoryIDFK",
+        },
+      },
+      {
+        $addFields: {
+          factoryIDFK: {
+            $arrayElemAt: ["$factoryIDFK", 0],
+          },
+        },
+      },
+      {
+        $match: {
+          isActive: true,
+          machineType: itemArray[1],
+          machineNumber: machineNumber,
+          "factoryIDFK.factoryPrefix": itemArray[0],
+        },
+      },
+    ],
+  ];
+  var objdata = new Array();
+  const aggCursor1 = machineModel.aggregate(pipeline1);
+  for await (const doc of aggCursor1) {
+    objdata.push(doc);
+  }
+
+  if (objdata != null) {
+    res.json({
+      result: "success",
+      msg: "Machine Data Found Successfully",
+      data: objdata[0],
+    });
+  } else {
+    res.json({ result: "failure", msg: " Unsuccessful", data: objdata });
+  }
+});
+
 router.post("/updateBatch", async (req, res) => {
   const objdata = await batchModel.updateOne(
     { _id: req.body.id },
@@ -497,7 +730,7 @@ router.post("/updateStatusBatch", async (req, res) => {
   if (objdata != null) {
     res.json({
       result: "success",
-      msg: "Company Updated Successfully",
+      msg: "Batch Updated Successfully",
       data: true,
     });
   } else {
@@ -524,53 +757,736 @@ router.get("/deleteBatch/:id", async (req, res) => {
 });
 
 router.post("/getBatchData", async (req, res) => {
-  const objdata = await batchModel.find({ _id: req.body.id });
-  if (objdata != null) {
-    res.json({ result: "success", msg: "User List Found", data: objdata });
+  var batchID = req.body.id;
+
+  const pipeline = [
+    [
+      {
+        $lookup: {
+          from: "batches",
+          localField: "batchIDFK",
+          foreignField: "_id",
+          as: "batch",
+        },
+      },
+      {
+        $addFields: {
+          batch: {
+            $arrayElemAt: ["$batch", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "machines",
+          localField: "batch.machineIDFK",
+          foreignField: "_id",
+          as: "machine",
+        },
+      },
+      {
+        $addFields: {
+          machine: {
+            $arrayElemAt: ["$machine", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "factories",
+          localField: "machine.factoryIDFK",
+          foreignField: "_id",
+          as: "factoryIDFK",
+        },
+      },
+      {
+        $addFields: {
+          factoryIDFK: {
+            $arrayElemAt: ["$factoryIDFK", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "designs",
+          localField: "designIDFK",
+          foreignField: "_id",
+          as: "design",
+        },
+      },
+      {
+        $addFields: {
+          design: {
+            $arrayElemAt: ["$design", 0],
+          },
+        },
+      },
+      {
+        $match: {
+          batchIDFK: mongoose.Types.ObjectId(batchID),
+        },
+      },
+    ],
+  ];
+
+  const objdata = await takaModel.aggregate(pipeline);
+
+  var batchData = objdata[0];
+
+  var data = [];
+
+  for (const taka of objdata) {
+    var convertedJson = JSON.parse(JSON.stringify(taka));
+    console.log(taka);
+    if (taka.takaStatus == null) {
+      convertedJson.takaStatus == "In Machine";
+    }
+    if (taka.takaNumber == null) {
+      convertedJson.takaNumber = "-";
+    }
+
+    const designPhotoData = await designPhotoModel.findOne({
+      designIDFK: taka.batch.designIDFK,
+    });
+    if (designPhotoData != null) {
+      convertedJson.pathImage = designPhotoData.pathImage;
+    }
+
+    const updatedData = await takaModel.findOne({
+      isActive: true,
+      batchIDFK: taka.batch._id,
+      takaStatus: taka.takaStatus,
+    });
+
+    convertedJson.taka = updatedData;
+    data.push(convertedJson);
+  }
+
+  console.log(data);
+  if (data != null) {
+    res.json({ result: "success", msg: "User List Found", data: data[0] });
   } else {
-    res.json({ result: "failure", msg: "User List Not Found", data: objdata });
+    res.json({ result: "failure", msg: "User List Not Found", data: data });
   }
 });
 
 router.post("/listBatchByStatus", async (req, res) => {
+  var statusValue = req.body.status;
   var sortvalue;
   if (req.body.strSort == "Machine Number High To Low") {
     sortvalue = 1;
   } else {
     sortvalue = -1;
   }
-  const objdata = await batchModel
-    .find({ status: req.body.status })
-    .sort({ machineType: sortvalue });
-  if (objdata != null) {
-    res.json({ result: "success", msg: "User List Found", data: objdata });
+  var pipeline = [];
+  if (statusValue == "Ready For Sale") {
+    pipeline = [
+      [
+        {
+          $lookup: {
+            from: "batches",
+            localField: "batchIDFK",
+            foreignField: "_id",
+            as: "batch",
+          },
+        },
+        {
+          $addFields: {
+            batch: {
+              $arrayElemAt: ["$batch", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "machines",
+            localField: "batch.machineIDFK",
+            foreignField: "_id",
+            as: "machine",
+          },
+        },
+        {
+          $addFields: {
+            machine: {
+              $arrayElemAt: ["$machine", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "designs",
+            localField: "batch.designIDFK",
+            foreignField: "_id",
+            as: "design",
+          },
+        },
+        {
+          $addFields: {
+            design: {
+              $arrayElemAt: ["$design", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "factories",
+            localField: "machine.factoryIDFK",
+            foreignField: "_id",
+            as: "factory",
+          },
+        },
+        {
+          $addFields: {
+            factory: {
+              $arrayElemAt: ["$factory", 0],
+            },
+          },
+        },
+        {
+          $match: {
+            isActive: "true",
+            takaStatus: statusValue,
+          },
+        },
+      ],
+    ];
   } else {
-    res.json({ result: "failure", msg: "User List Not Found", data: objdata });
+    pipeline = [
+      [
+        {
+          $lookup: {
+            from: "batches",
+            localField: "batchIDFK",
+            foreignField: "_id",
+            as: "batch",
+          },
+        },
+        {
+          $addFields: {
+            batch: {
+              $arrayElemAt: ["$batch", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "machines",
+            localField: "batch.machineIDFK",
+            foreignField: "_id",
+            as: "machine",
+          },
+        },
+        {
+          $addFields: {
+            machine: {
+              $arrayElemAt: ["$machine", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "designs",
+            localField: "batch.designIDFK",
+            foreignField: "_id",
+            as: "design",
+          },
+        },
+        {
+          $addFields: {
+            design: {
+              $arrayElemAt: ["$design", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "factories",
+            localField: "machine.factoryIDFK",
+            foreignField: "_id",
+            as: "factory",
+          },
+        },
+        {
+          $addFields: {
+            factory: {
+              $arrayElemAt: ["$factory", 0],
+            },
+          },
+        },
+        {
+          $match: {
+            isActive: "true",
+            "batch.status": statusValue,
+          },
+        },
+        {
+          $sort: {
+            serialNumber: sortvalue,
+          },
+        },
+      ],
+    ];
+  }
+  const objdata = await takaModel.aggregate(pipeline);
+  var batchData = [];
+  for (const row of objdata) {
+    var convertedJson = JSON.parse(JSON.stringify(row));
+    if (row.takaStatus == null) {
+      convertedJson.takaStatus == "In Machine";
+    }
+    if (row.takaNumber == null) {
+      convertedJson.takaNumber = "-";
+    }
+
+    const designPhotoData = await designPhotoModel.findOne({
+      designIDFK: row.design._id,
+    });
+    if (designPhotoData != null) {
+      convertedJson.pathImage = designPhotoData.pathImage;
+    }
+    var taka = await takaModel.find({
+      isActive: true,
+      batchIDFK: row.batch._id,
+      takaStatus: convertedJson.takaStatus,
+      takaQuality: row.takaQuality,
+    });
+    convertedJson.taka = taka;
+    batchData.push(convertedJson);
+  }
+
+  if (batchData != null) {
+    res.json({ result: "success", msg: "User List Found", data: batchData });
+  } else {
+    res.json({
+      result: "failure",
+      msg: "User List Not Found",
+      data: batchData,
+    });
   }
 });
 
 router.post("/selectBatchByDesignMachine", async (req, res) => {
-  const objdata = await batchModel.find({
-    designIDFK: req.body.designIDFK,
-    machineIDFK: req.body.machineIDFK,
-  });
+  var designIDValue = req.body.designIDFK;
+  var machineIDValue = req.body.machineIDFK;
+  console.log(designIDValue);
+  console.log(machineIDValue);
+  const pipeline1 = [
+    [
+      {
+        $lookup: {
+          from: "machines",
+          localField: "machineIDFK",
+          foreignField: "_id",
+          as: "machine",
+        },
+      },
+      {
+        $addFields: {
+          machine: {
+            $arrayElemAt: ["$machine", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "factories",
+          localField: "machine.factoryIDFK",
+          foreignField: "_id",
+          as: "factory",
+        },
+      },
+      {
+        $addFields: {
+          factory: {
+            $arrayElemAt: ["$factory", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "designs",
+          localField: "designIDFK",
+          foreignField: "_id",
+          as: "design",
+        },
+      },
+      {
+        $addFields: {
+          design: {
+            $arrayElemAt: ["$design", 0],
+          },
+        },
+      },
+      {
+        $match: {
+          "design.designNo": designIDValue,
+          "machine._id": mongoose.Types.ObjectId(machineIDValue),
+        },
+      },
+    ],
+  ];
+  const objdata = await batchModel.aggregate(pipeline1);
+  // for await (const doc of aggCursor1) {
+  //   if (doc.status != "Folding Done") objdata.push(doc);
+  // }
+  var batchData = objdata[0];
+  // console.log(batchData);
+  // console.log("Batch ID");
+  // console.log(batchData._id);
+  var data = [];
   if (objdata != null) {
-    res.json({ result: "success", msg: "User List Found", data: objdata });
+    const pipeline = [
+      [
+        {
+          $lookup: {
+            from: "batches",
+            localField: "batchIDFK",
+            foreignField: "_id",
+            as: "batch",
+          },
+        },
+        {
+          $addFields: {
+            batch: {
+              $arrayElemAt: ["$batch", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "machines",
+            localField: "batch.machineIDFK",
+            foreignField: "_id",
+            as: "machine",
+          },
+        },
+        {
+          $addFields: {
+            machine: {
+              $arrayElemAt: ["$machine", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "factories",
+            localField: "machine.factoryIDFK",
+            foreignField: "_id",
+            as: "factory",
+          },
+        },
+        {
+          $addFields: {
+            factory: {
+              $arrayElemAt: ["$factory", 0],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "designs",
+            localField: "designIDFK",
+            foreignField: "_id",
+            as: "design",
+          },
+        },
+        {
+          $addFields: {
+            design: {
+              $arrayElemAt: ["$design", 0],
+            },
+          },
+        },
+        {
+          $match: {
+            batchIDFK: batchData._id,
+          },
+        },
+      ],
+    ];
+    //var objdata = new Array();
+    const takaData = await takaModel.aggregate(pipeline);
+    console.log("Taka Data=============");
+    console.log(takaData);
+
+    for (const taka of takaData) {
+      var convertedJson = JSON.parse(JSON.stringify(taka));
+      console.log(taka);
+      if (taka.takaStatus == null) {
+        convertedJson.takaStatus == "In Machine";
+      }
+      if (taka.takaNumber == null) {
+        convertedJson.takaNumber = "-";
+      }
+
+      const designPhotoData = await designPhotoModel.findOne({
+        designIDFK: taka.batch.designIDFK,
+      });
+      if (designPhotoData != null) {
+        convertedJson.pathImage = designPhotoData.pathImage;
+      }
+
+      const pipeline2 = [
+        [
+          {
+            $lookup: {
+              from: "batches",
+              localField: "batchIDFK",
+              foreignField: "_id",
+              as: "batch",
+            },
+          },
+          {
+            $addFields: {
+              batch: {
+                $arrayElemAt: ["$batch", 0],
+              },
+            },
+          },
+          {
+            $lookup: {
+              from: "machines",
+              localField: "batch.machineIDFK",
+              foreignField: "_id",
+              as: "machine",
+            },
+          },
+          {
+            $addFields: {
+              machine: {
+                $arrayElemAt: ["$machine", 0],
+              },
+            },
+          },
+          {
+            $lookup: {
+              from: "factories",
+              localField: "machine.factoryIDFK",
+              foreignField: "_id",
+              as: "factory",
+            },
+          },
+          {
+            $addFields: {
+              factory: {
+                $arrayElemAt: ["$factory", 0],
+              },
+            },
+          },
+          {
+            $match: {
+              isActive: "true",
+              "factory.factoryPrefix": taka.factory.factoryPrefix,
+              "machine.machineType": taka.machine.machineType,
+            },
+          },
+        ],
+      ];
+      const updatedTaka = await takaModel.aggregate(pipeline2);
+
+      convertedJson.taka = updatedTaka;
+      data.push(convertedJson);
+    }
+    console.log(takaData);
+  }
+  console.log(data);
+  if (data.length > 0) {
+    res.json({ result: "success", msg: "User List Found", data: data[0] });
   } else {
-    res.json({ result: "failure", msg: "User List Not Found", data: objdata });
+    const convertedJson = JSON.parse(JSON.stringify(batchData));
+    convertedJson.batchIDFK = batchData._id;
+    res.json({
+      result: "success",
+      msg: "User List Not Found",
+      data: convertedJson,
+    });
   }
 });
 
-router.post("/selectBatchByMachine", async (req, res) => {
-  const objdata = await batchModel.find({
-    machineIDFK: req.body.machineIDFK,
-  });
-  if (objdata != null) {
-    res.json({ result: "success", msg: "User List Found", data: objdata });
-  } else {
-    res.json({ result: "failure", msg: "User List Not Found", data: objdata });
-  }
-});
+// router.post("/selectBatchByMachine", async (req, res) => {
+//   const pipeline = [
+//     [
+//       {
+//         $lookup: {
+//           from: "designs",
+//           localField: "designIDFK",
+//           foreignField: "_id",
+//           as: "design",
+//         },
+//       },
+//       {
+//         $addFields: {
+//           design: {
+//             $arrayElemAt: ["$design", 0],
+//           },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "machines",
+//           localField: "machineIDFK",
+//           foreignField: "_id",
+//           as: "machine",
+//         },
+//       },
+//       {
+//         $addFields: {
+//           machine: {
+//             $arrayElemAt: ["$machine", 0],
+//           },
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "factories",
+//           localField: "machine.factoryIDFK",
+//           foreignField: "_id",
+//           as: "factory",
+//         },
+//       },
+//       {
+//         $addFields: {
+//           factory: {
+//             $arrayElemAt: ["$factory", 0],
+//           },
+//         },
+//       },
+//       {
+//         $match: {
+//           status: "In Machine",
+//           isActive: true,
+//           "machine._id": mongoose.Types.ObjectId(req.body.machineIDFK),
+//         },
+//       },
+//     ],
+//   ];
+//   var objdata = new Array();
+//   const aggCursor = batchModel.aggregate(pipeline);
+//   for await (const doc of aggCursor) {
+//     objdata.push(doc);
+//   }
+
+//   if (objdata != null) {
+//     const pipeline1 = [
+//       [
+//         {
+//           $lookup: {
+//             from: "designs",
+//             localField: "designIDFK",
+//             foreignField: "_id",
+//             as: "design",
+//           },
+//         },
+//         {
+//           $addFields: {
+//             design: {
+//               $arrayElemAt: ["$design", 0],
+//             },
+//           },
+//         },
+//         {
+//           $lookup: {
+//             from: "machines",
+//             localField: "machineIDFK",
+//             foreignField: "_id",
+//             as: "machine",
+//           },
+//         },
+//         {
+//           $addFields: {
+//             machine: {
+//               $arrayElemAt: ["$machine", 0],
+//             },
+//           },
+//         },
+//         {
+//           $lookup: {
+//             from: "factories",
+//             localField: "machine.factoryIDFK",
+//             foreignField: "_id",
+//             as: "factory",
+//           },
+//         },
+//         {
+//           $addFields: {
+//             factory: {
+//               $arrayElemAt: ["$factory", 0],
+//             },
+//           },
+//         },
+//         {
+//           $lookup: {
+//             from: "designs",
+//             localField: "designIDFK",
+//             foreignField: "_id",
+//             as: "design",
+//           },
+//         },
+//         {
+//           $addFields: {
+//             design: {
+//               $arrayElemAt: ["$design", 0],
+//             },
+//           },
+//         },
+//         {
+//           $lookup: {
+//             from: "takas",
+//             localField: "_id",
+//             foreignField: "batchIDFK",
+//             as: "taka",
+//           },
+//         },
+//         {
+//           $addFields: {
+//             taka: {
+//               $arrayElemAt: ["$taka", 0],
+//             },
+//           },
+//         },
+//         {
+//           $match: {
+//             _id: mongoose.Types.ObjectId(objdata._id),
+//           },
+//         },
+//       ],
+//     ];
+//     var data = new Array();
+//     const aggCursor1 = batchModel.aggregate(pipeline1);
+//     for await (const doc of aggCursor1) {
+//       data.push(doc);
+//     }
+
+//     data.forEach(async (row) => {
+//       if (row.takaStatus == null) {
+//         row.takaStatus == "In Machine";
+//       }
+//       if ($row.takaNumber == null) {
+//         $row.takaNumber = "0";
+//       }
+
+//       console.log(row.design._id);
+//       const designPhotoData = await designPhotoModel.find({
+//         designIDFK: row.design._id,
+//       });
+//       if (designPhotoData != null) {
+//         row.pathImage = designPhotoData[0].pathImage;
+//       }
+//       var taka = null;
+//       const taka = await takaModel.find({
+//         isActive: true,
+//         batchIDFK: row._id,
+//         takaStatus: row.taka.takaStatus,
+//       });
+//     });
+//   }
+
+//   if (objdata != null) {
+//     res.json({ result: "success", msg: "User List Found", data: objdata });
+//   } else {
+//     res.json({ result: "failure", msg: "User List Not Found", data: objdata });
+//   }
+// });
 
 router.get("/getAllBatch", async (req, res) => {
   const objdata = await batchModel
@@ -1253,13 +2169,13 @@ router.get("/listMachineGroup", async (req, res) => {
           from: "factories",
           localField: "factoryIDFK",
           foreignField: "_id",
-          as: "factory",
+          as: "factoryIDFK",
         },
       },
       {
         $addFields: {
-          factory: {
-            $arrayElemAt: ["$factory", 0],
+          factoryIDFK: {
+            $arrayElemAt: ["$factoryIDFK", 0],
           },
         },
       },
@@ -2273,10 +3189,7 @@ router.post("/addParty", async (req, res) => {
   party.createdBy = req.body.createdBy;
   party.createdDateTime = new Date();
   party.addOn = new Date();
-  party.isActive = req.body.isActive;
-  //==FK
-  party.cityIDFK = req.body.cityIDFK;
-  party.cityName = req.body.cityName;
+  party.isActive = "true";
 
   const objdata = await party.save();
 
@@ -2389,7 +3302,7 @@ router.post("/addTaka", async (req, res) => {
   taka.createdBy = req.body.createdBy;
   taka.defect = req.body.defect;
   taka.takaRemark = req.body.takaRemark;
-  taka.status = "Folding Done";
+  taka.takaStatus = "Folding Done";
   taka.serialNumber = between(10, 200);
 
   taka.processor_mill = "";
@@ -2436,7 +3349,7 @@ router.post("/updateTakaDetails", async (req, res) => {
       defect: req.body.defect,
       takaRemark: req.body.takaRemark,
       modifiedDateTime: new Date(),
-      status: "In Folding",
+      takaStatus: "In Folding",
     }
   );
 
@@ -2452,6 +3365,10 @@ router.post("/updateTakaDetails", async (req, res) => {
 });
 
 router.post("/updateDesignStock", async (req, res) => {
+  var fresh = 0;
+  var total = 0;
+  var foldingDone = 0;
+  var cl = 0;
   const pipeline = [
     [
       {
@@ -2559,7 +3476,7 @@ router.post("/updateDesignStock", async (req, res) => {
   var objdata = new Array();
   const aggCursor = takaModel.aggregate(pipeline);
   for await (const doc of aggCursor) {
-    if (req.body._id == doc._id) objdata.push(doc);
+    if (req.body.id == doc._id) objdata.push(doc);
   }
 
   console.log(objdata[0].stock._id.toString());
@@ -2568,35 +3485,34 @@ router.post("/updateDesignStock", async (req, res) => {
     console.log(objdata[0].design.designType);
     if (objdata[0].design.designType == "All Over") {
       console.log("in");
-      const stockdata = await stockModel.updateOne(
-        { _id: objdata[0].stock._id.toString() },
-        {
-          fresh:
-            parseInt(objdata[0].noOfSarees) + parseInt(objdata[0].stock.fresh),
-          total:
-            parseInt(objdata[0].fresh) + parseInt(objdata[0].stock.returned),
-          foldingDone:
-            parseInt(objdata[0].stock.foldingDone) -
-            parseInt(objdata[0].noOfSarees),
-        }
-      );
+      fresh =
+        parseInt(objdata[0].noOfSarees) + parseInt(objdata[0].stock.fresh);
+      total = parseInt(objdata[0].fresh) + parseInt(objdata[0].stock.returned);
+      foldingDone =
+        parseInt(objdata[0].stock.foldingDone) -
+        parseInt(objdata[0].noOfSarees);
     }
   } else {
     console.log("else");
-    const stockdata = await stockModel.updateOne(
-      { _id: objdata[0].stock._id.toString() },
-      {
-        fresh: parseInt(objdata[0].fresh) + parseInt(objdata[0].stock.fresh),
-        second: parseInt(objdata[0].second) + parseInt(objdata[0].stock.second),
-        cl: parseInt(objdata[0].cl) - parseInt(objdata[0].stock.cl),
-        total:
-          [parseInt(objdata[0].fresh) + parseInt(objdata[0].second)] +
-          [parseInt(objdata[0].stock.returned) + parseInt(objdata[0].cl)],
-        foldingDone:
-          parseInt(objdata[0].foldingDone) - parseInt(objdata[0].noOfSarees),
-      }
-    );
+
+    fresh = parseInt(objdata[0].fresh) + parseInt(objdata[0].stock.fresh);
+    second = parseInt(objdata[0].second) + parseInt(objdata[0].stock.second);
+    cl = parseInt(objdata[0].cl) - parseInt(objdata[0].stock.cl);
+    total =
+      [parseInt(objdata[0].fresh) + parseInt(objdata[0].second)] +
+      [parseInt(objdata[0].stock.returned) + parseInt(objdata[0].cl)];
+    foldingDone =
+      parseInt(objdata[0].foldingDone) - parseInt(objdata[0].noOfSarees);
   }
+  const stockdata = await stockModel.updateOne(
+    { _id: objdata[0].stock._id.toString() },
+    {
+      fresh: fresh,
+      total: total,
+      foldingDone: foldingDone,
+      cl: cl,
+    }
+  );
   var objdataUpdated = new Array();
   const aggCursorUpdated = takaModel.aggregate(pipeline);
   for await (const doc of aggCursorUpdated) {
@@ -2607,13 +3523,13 @@ router.post("/updateDesignStock", async (req, res) => {
     res.json({
       result: "success",
       msg: "Taka List Found",
-      data: objdataUpdated,
+      data: 1,
     });
   } else {
     res.json({
       result: "failure",
       msg: "Taka List Not Found",
-      data: objdataUpdated,
+      data: 0,
     });
   }
 });
@@ -2726,11 +3642,14 @@ router.post("/updateStatusTaka", async (req, res) => {
   var objdata = new Array();
   const aggCursor = takaModel.aggregate(pipeline);
   for await (const doc of aggCursor) {
-    if (req.body._id == doc._id) objdata.push(doc);
+    if (req.body.id == doc._id) objdata.push(doc);
   }
 
   var statusValue = req.body.status;
-  var updated = 0;
+  var updated = await takaModel.updateOne(
+    { _id: req.body.id },
+    { takaStatus: statusValue }
+  );
   if (statusValue === "Folding Done") {
     console.log(objdata[0].stock._id.toString());
     const stockdata = await stockModel.updateOne(
@@ -2742,33 +3661,33 @@ router.post("/updateStatusTaka", async (req, res) => {
       }
     );
     if (stockdata != null) {
-      updated = 1;
+      updated = true;
     }
   }
 
-  if (updated != 0) {
+  if (updated) {
     res.json({
       result: "success",
       msg: "Taka List Found",
-      data: updated,
+      data: true,
     });
   } else {
     res.json({
       result: "failure",
       msg: "Taka List Not Found",
-      data: updated,
+      data: false,
     });
   }
 });
 
 router.post("/updateTaka", async (req, res) => {
   const objdata = await takaModel.updateOne(
-    { _id: req.body._id },
+    { _id: req.body.id },
     {
       fresh: req.body.fresh,
       second: req.body.second,
       cl: req.body.cl,
-      status: req.body.status,
+      takaStatus: req.body.status,
     }
   );
 
@@ -2784,69 +3703,53 @@ router.post("/updateTaka", async (req, res) => {
 });
 
 router.post("/updateTakaProcessor", async (req, res) => {
-  var statusValue = req.body.status;
-
+  console.log(req.body);
+  var statusValue = req.body.takaStatus;
+  var objdata;
   if (statusValue == "In Mill") {
-    const objdata = await takaModel.updateOne(
-      { _id: req.body._id },
+    objdata = await takaModel.updateOne(
+      { _id: req.body.id },
       {
         company_mill: req.body.company,
         processor_mill: req.body.processor,
+        takaStatus: statusValue,
         modifiedDateTime: new Date(),
       }
     );
-
-    if (objdata != null) {
-      res.json({
-        result: "success",
-        msg: "taka Updated Successfully",
-        data: true,
-      });
-    } else {
-      res.json({ result: "failure", msg: "Unsuccessful", data: false });
-    }
   }
 
   if (statusValue == "In Butta Cutting") {
-    const objdata = await takaModel.updateOne(
-      { _id: req.body._id },
+    objdata = await takaModel.updateOne(
+      { _id: req.body.id },
       {
         company_butta: req.body.company,
         processor_butta: req.body.processor,
+        takaStatus: statusValue,
         modifiedDateTime: new Date(),
       }
     );
-
-    if (objdata != null) {
-      res.json({
-        result: "success",
-        msg: "taka Updated Successfully",
-        data: true,
-      });
-    } else {
-      res.json({ result: "failure", msg: "Unsuccessful", data: false });
-    }
   }
 
   if (statusValue == "In Border Cutting") {
-    const objdata = await takaModel.updateOne(
-      { _id: req.body._id },
+    objdata = await takaModel.updateOne(
+      { _id: req.body.id },
       {
         company_border: req.body.company,
         processor_border: req.body.processor,
+        takaStatus: statusValue,
         modifiedDateTime: new Date(),
       }
     );
+  }
 
-    if (objdata != null) {
-      res.json({
-        result: "success",
-        msg: "taka Updated Successfully",
-        data: true,
-      });
-    } else {
-      res.json({ result: "failure", msg: "Unsuccessful", data: false });
-    }
+  if (objdata != null) {
+    res.json({
+      result: "success",
+      msg: "taka Updated Successfully",
+      data: 1,
+    });
+  } else {
+    res.json({ result: "failure", msg: "Unsuccessful", data: 0 });
   }
 });
 
@@ -2993,6 +3896,132 @@ router.post("/getAllTakaList", async (req, res) => {
   }
 });
 
+router.post("/getTakaList", async (req, res) => {
+  var takaStatusValue = req.body.takaStatus;
+
+  const pipeline = [
+    [
+      {
+        $lookup: {
+          from: "batches",
+          localField: "batchIDFK",
+          foreignField: "_id",
+          as: "batch",
+        },
+      },
+      {
+        $addFields: {
+          batch: {
+            $arrayElemAt: ["$batch", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "machines",
+          localField: "batch.machineIDFK",
+          foreignField: "_id",
+          as: "machine",
+        },
+      },
+      {
+        $addFields: {
+          machine: {
+            $arrayElemAt: ["$machine", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "designs",
+          localField: "batch.designIDFK",
+          foreignField: "_id",
+          as: "design",
+        },
+      },
+      {
+        $addFields: {
+          design: {
+            $arrayElemAt: ["$design", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "designphotos",
+          localField: "design._id",
+          foreignField: "designIDFK",
+          as: "designPhoto",
+        },
+      },
+      {
+        $addFields: {
+          designPhoto: {
+            $arrayElemAt: ["$designPhoto", 0],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "factories",
+          localField: "machine.factoryIDFK",
+          foreignField: "_id",
+          as: "factory",
+        },
+      },
+      {
+        $addFields: {
+          factory: {
+            $arrayElemAt: ["$factory", 0],
+          },
+        },
+      },
+      {
+        $match: {
+          isActive: "true",
+          takaStatus: takaStatusValue,
+        },
+      },
+      {
+        $sort: {
+          serialNumber: 1,
+        },
+      },
+    ],
+  ];
+  var objdata = new Array();
+  const aggCursor = takaModel.aggregate(pipeline);
+  for await (const doc of aggCursor) {
+    objdata.push(doc);
+  }
+  // for (design of objdata) {
+  //   console.log(objdata[0].design._id);
+  // }
+  // var objDesign = new Array();
+  // for (const design of objdata) {
+  //   var element = JSON.parse(JSON.stringify(design));
+  //   // console.log(design._id);
+  //   const pathValue = await designPhotoModel.findOne({
+  //     isActive: true,
+  //     designIDFK: design._id,
+  //   });
+  //   // console.log(pathValue);
+  //   if (pathValue != null) {
+  //     element.pathImage = "upload/" + pathValue.pathImage;
+  //   } else {
+  //     element.pathImage = "upload/noImage.png";
+  //   }
+
+  //   objDesign.push(element);
+  // }
+
+  if (objdata != null) {
+    res.json({ result: "success", msg: "Taka List Found", data: objdata });
+  } else {
+    res.json({ result: "failure", msg: "Taka List Not Found", data: objdata });
+  }
+});
+
 router.post("/getByTakaID", async (req, res) => {
   var sortvalue;
   if (req.body.strSort == "Serial Number High To Low") {
@@ -3114,7 +4143,7 @@ router.post("/getByTakaID", async (req, res) => {
   }
 
   if (objdata != null) {
-    res.json({ result: "success", msg: "Taka List Found", data: objdata });
+    res.json({ result: "success", msg: "Taka List Found", data: objdata[0] });
   } else {
     res.json({ result: "failure", msg: "Taka List Not Found", data: objdata });
   }
@@ -3538,7 +4567,7 @@ router.post("/addStock", async (req, res) => {
   stock.createdBy = req.body.createdBy;
   stock.createdDateTime = new Date();
   stock.addOn = new Date();
-  stock.isActive = req.body.isActive;
+  stock.isActive = "true";
   //==FK
   stock.designIDFK = req.body.designIDFK;
 
@@ -3612,33 +4641,36 @@ router.get("/getByStockID/:id", async (req, res) => {
 });
 
 router.get("/listStock", async (req, res) => {
-  const objdata = await stockModel.find().populate("designIDFK", ["designNo"]);
+  const objdata = await stockModel
+    .find({ isActive: true })
+    .populate("designIDFK", ["designNo"]);
 
-  // var objDesign = new Array();
-  // for (const design of objdata) {
-  //   var element = JSON.parse(JSON.stringify(design));
-  //   console.log("designIDFK ID:");
-  //   console.log(design.designIDFK._id.toString());
-  //   const pathValue = await designPhotoModel.findOne({
-  //     isActive: true,
-  //     designIDFK: design.designIDFK._id.toString(),
-  //   });
-  //   // console.log(pathValue);
-  //   if (pathValue != null) {
-  //     element.pathImage = "upload/" + pathValue.pathImage;
-  //   } else {
-  //     element.pathImage = "upload/noImage.png";
-  //   }
-  //   objDesign.push(element);
-  // }
+  var objDesign = new Array();
+  for (const design of objdata) {
+    //console.log(design.designIDFK._id);
+    var element = JSON.parse(JSON.stringify(design));
+    // console.log("designIDFK ID:");
+    //console.log(design.designIDFK);
+    const pathValue = await designPhotoModel.findOne({
+      isActive: true,
+      designIDFK: design.designIDFK,
+    });
+    // console.log(pathValue);
+    if (pathValue != null) {
+      element.pathImage = "upload/" + pathValue.pathImage;
+    } else {
+      element.pathImage = "upload/noImage.png";
+    }
+    objDesign.push(element);
+  }
 
-  if (objdata != null) {
-    res.json({ result: "success", msg: "Taka List Found", data: objdata });
+  if (objDesign != null) {
+    res.json({ result: "success", msg: "Taka List Found", data: objDesign });
   } else {
     res.json({
       result: "failure",
       msg: "Taka List Not Found",
-      data: objdata,
+      data: objDesign,
     });
   }
 });
